@@ -395,35 +395,3 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
         points_filled = clip_points(points_filled, bounding_shape)
 
     return points_filled
-
-
-# import pandas as pd
-# df = pd.read_csv("../data/text.csv")
-# points = df.as_matrix(columns=['//X', 'Y', 'Z'])
-# points_filled = fill_holes(points)
-
-# def fill_holes_pdal(ins, outs):
-#    points = np.array((ins['X'], ins['Y'], ins['Z'])).T
-#    normals = np.array((ins['NormalX'], ins['NormalY'], ins['NormalZ'])).T
-#
-#    # max_circum_radius = pdalargs['max_circum_radius']
-#    # max_ratio_radius_area = pdalargs['max_ratio_radius_area']
-#    # distance = pdalargs['distance']
-#    # percentile = pdalargs['percentile']
-#    # min_norm_z = pdalargs['min_norm_z']
-#
-#    # points_filled = fill_holes(points, max_circum_radius,
-#    #                            max_ratio_radius_area,
-#    #                            distance, percentile,
-#    #                            normals, min_norm_z)
-#    points_filled = fill_holes(points, 0.4,
-#                               0.2,
-#                               0.4, 50)
-#
-#    outs['X'] = points_filled[:, 0]
-#    outs['Y'] = points_filled[:, 1]
-#    outs['Z'] = points_filled[:, 2]
-#
-#    np.savetxt("../data/output_python.csv", points_filled)
-#
-#    return True
