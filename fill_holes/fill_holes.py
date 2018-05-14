@@ -114,41 +114,6 @@ def generate_samples(width, height, distance):
     return XY
 
 
-def clip_points(points, shape):
-    """
-    Clips an array of points to a shape.
-
-    Parameters
-    ----------
-    points : (Mx3) array
-        The coordinates of the points.
-    shape : Path or Polygon
-        A shape defined by a matplotlib Path or a shapely
-        Polygon. All points will be clipped to this shape.
-
-    Returns
-    -------
-    points_clip : (Mx3) array
-        The coordinates of the points that fall within the shape.
-
-    Note
-    ----
-    Using a matplotlib Path is significantly faster.
-    """
-    if type(shape) == Path:
-        within_shape = shape.contains_points(points[:, :2])
-        points_clip = points[within_shape]
-    else:
-        if type(shape) == Polygon:
-            shapely_points = [Point(p) for p in points]
-            within_shape = filter(shape.contains, shapely_points)
-            points_clip = np.array([list(p.coords)[0] for p in within_shape])
-        else:
-            print("Error: bounding shape type not recognized!")
-
-    return points_clip
-
-
 def generate_synthetic_points(points, shape, distance, percentile,
                               normals=None, min_norm_z=0):
     """
