@@ -6,11 +6,13 @@ Created on Mar 21 2018
 """
 
 import math
-import re
 import numpy as np
 from scipy.spatial import Delaunay
 from matplotlib.path import Path
 from numba import jit
+from shapely.geometry import Polygon, Point
+from shapely.ops import cascaded_union, transform
+from shapely.wkt import loads
 
 
 @jit
@@ -206,41 +208,17 @@ def generate_synthetic_points(points, shape, distance, percentile,
     return X, Y, Z
 
 
-def parsePolygonWKT(wkt):
+def remove_outside_holes(holes, bounding_shape):
     """
-    Parses a WKT string of a polygon to a numpy array of coordinates.
-
-    Parameters
-    ----------
-    wkt : str
-        A WKT string of a polygon.
-
-    Returns
-    -------
-    coords : array
-        An array of coordinates of the points of the polygon.
     """
-    if wkt.find('POLYGON ') == -1:
-        raise ValueError("Error: invalid WKT string. Not a Polygon.")
-    elif wkt.find('MULTI') != -1:
-        raise ValueError(
-            "Error: invalid WKT string. MultiPolygons not supported.")
-    elif wkt.find('),') != -1:
-        print("Warning: interiors will be ignored.")
-        wkt = wkt.split('),')[0]
+    outside_shape = []
+    for i, h in enumerate(holes):
+        if not bounding_shape.contains(h.centroid):
+            outside_shape.append(h)
 
-    nums = re.findall(r'\d+(?:\.\d*)?', wkt)
-    nums = list(map(float, nums))
+    holes = [h for h in holes if h not in outside_shape]
 
-    num_dimensions = len(wkt.split(', ')[1].split(' '))
-    if num_dimensions == 2:
-        coords = np.reshape(nums, (-1, 2))
-    elif num_dimensions == 3:
-        coords = np.reshape(nums, (-1, 3))
-    else:
-        print("Error: invalid number of dimension or invalid WKT string")
-
-    return coords
+    return holes
 
 
 def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
@@ -295,13 +273,19 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
-        holes = cascaded_union([Polygon(points[tri.simplices[t]])
-                                for t in big_triangles])
+        holes = list(cascaded_union([Polygon(points[tri.simplices[t]])
+                                     for t in big_triangles]))
+
+        if bounding_shape is not None:
+            if type(bounding_shape) == str:
+                bounding_shape = loads(bounding_shape)
+            bounding_shape = transform(lambda x, y: (x-shift[0], y-shift[1]),
+                                       bounding_shape)
+            holes = remove_outside_holes(holes, bounding_shape)
 
         listX = []
         listY = []
         listZ = []
-
         for h in holes:
             if normals is not None:
                 indices = []
@@ -320,7 +304,6 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
                                                     h,
                                                     distance,
                                                     percentile)
-
             listX.extend(X)
             listY.extend(Y)
             listZ.extend(Z)
@@ -329,11 +312,5 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
 
     points += shift
     synthetic_points += shift
-
-    if bounding_shape is not None:
-        if type(bounding_shape) == str:
-            bounding_coords = parsePolygonWKT(bounding_shape)
-            bounding_shape = Path(bounding_coords)
-        synthetic_points = clip_points(synthetic_points, bounding_shape)
 
     return synthetic_points
