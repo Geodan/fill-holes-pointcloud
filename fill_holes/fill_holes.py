@@ -37,9 +37,6 @@ def triangle_geometry(triangle):
     a = math.hypot((pa[0]-pb[0]), (pa[1]-pb[1]))
     b = math.hypot((pb[0]-pc[0]), (pb[1]-pc[1]))
     c = math.hypot((pc[0]-pa[0]), (pc[1]-pa[1]))
-#    a = math.hypot(*pa-pb)
-#    b = math.hypot(*pb-pc)
-#    c = math.hypot(*pc-pa)
     # Semiperimeter of triangle
     s = (a + b + c)/2.0
     # Area of triangle by Heron's formula
@@ -87,62 +84,6 @@ def determine_big_triangles(points, tri_simplices,
     return big_triangles
 
 
-def merge_triangles(tri, triangles):
-    """
-    Merge triangles that share an edge.
-
-    Parameters
-    ----------
-    tri : scipy.spatial.qhull.Delaunay object
-        A delaunay triangulation object computed by SciPy.
-    triangles : list
-        The indices of the triangles that are considered for merging.
-
-    Returns
-    -------
-    triangle_groups : list of sets
-        The triangles grouped together in sets.
-    """
-    triangle_groups = []
-    for i in triangles:
-        found = -1
-        simplices = tri.simplices[i]
-        for i, group in enumerate(triangle_groups):
-            for s in simplices:
-                if s in group:
-                    group.extend(simplices)
-                    if found != -1:
-                        triangle_groups[found].extend(group)
-                        triangle_groups.pop(i)
-                    found = i
-                    break
-        if found == -1:
-            triangle_groups.append(list(simplices))
-    triangle_groups = [set(t) for t in triangle_groups]
-    return triangle_groups
-
-
-def sort_counterclockwise(points):
-    """
-    Sort a set of points counterclockwise by sorting them by the angle they
-    make with a mean point.
-
-    Parameters
-    ----------
-    points (Mx2) array
-        The coordinates of the points.
-
-    Returns
-    -------
-    points (Mx2) array
-        The coordinates of the sorted points.
-    """
-    mean = np.mean(points, axis=0)
-    points_mean_shift = points - mean
-    angles = np.arctan2(points_mean_shift[:, 0], points_mean_shift[:, 1])
-    return points[np.argsort(angles), :]
-
-
 def generate_samples(width, height, distance):
     """
     Generate evenly spread points based on a width, height and distance.
@@ -171,7 +112,42 @@ def generate_samples(width, height, distance):
     return XY
 
 
-def generate_synthetic_points(points, distance, percentile,
+def clip_points(points, shape):
+    """
+    Clips an array of points to a shape.
+
+    Parameters
+    ----------
+    points : (Mx3) array
+        The coordinates of the points.
+    shape : Path or Polygon
+        A shape defined by a matplotlib Path or a shapely
+        Polygon. All points will be clipped to this shape.
+
+    Returns
+    -------
+    points_clip : (Mx3) array
+        The coordinates of the points that fall within the shape.
+
+    Note
+    ----
+    Using a matplotlib Path is significantly faster.
+    """
+    if type(shape) == Path:
+        within_shape = shape.contains_points(points[:, :2])
+        points_clip = points[within_shape]
+    else:
+        if type(shape) == Polygon:
+            shapely_points = [Point(p) for p in points]
+            within_shape = filter(shape.contains, shapely_points)
+            points_clip = np.array([list(p.coords)[0] for p in within_shape])
+        else:
+            print("Error: bounding shape type not recognized!")
+
+    return points_clip
+
+
+def generate_synthetic_points(points, shape, distance, percentile,
                               normals=None, min_norm_z=0):
     """
     Generate synthetic points within the surrounding points.
@@ -199,9 +175,7 @@ def generate_synthetic_points(points, distance, percentile,
     synthetic_points : (Mx3) array
         The coordinates of the synthetic points.
     """
-    # Sort the points to create a polygon (path)
-    points_sorted = sort_counterclockwise(points[:, :2])
-    hole_path = Path(points_sorted)
+    hole_path = Path(points[:, :2])
 
     # Generate points based on the height and width of the hole
     width = np.ptp(points[:, 0])
@@ -212,6 +186,8 @@ def generate_synthetic_points(points, distance, percentile,
     # Filter the points that are not within the hole
     within_hole = hole_path.contains_points(samples)
     samples_in_hole = samples[within_hole]
+    if len(samples_in_hole) == 0:
+        samples_in_hole = np.array(shape.centroid.coords)
 
     # The height of the points is determined by the height of the
     # points around the hole. A percentile is used to determine the
@@ -228,43 +204,6 @@ def generate_synthetic_points(points, distance, percentile,
                   len(samples_in_hole))
 
     return X, Y, Z
-
-
-def clip_points(points, shape):
-    """
-    Clips an array of points to a shape.
-
-    Parameters
-    ----------
-    points : (Mx3) array
-        The coordinates of the points.
-    shape : Path or Polygon
-        A shape defined by a matplotlib Path or a shapely
-        Polygon. All points will be clipped to this shape.
-
-    Returns
-    -------
-    points_clip : (Mx3) array
-        The coordinates of the points that fall within the shape.
-
-    Note
-    ----
-    Using a matplotlib Path is significantly faster.
-    """
-    if type(shape) == Path:
-        within_shape = shape.contains_points(points[:, :2])
-        points_clip = points[within_shape]
-    else:
-        from shapely.geometry import Polygon, Point
-
-        if type(shape) == Polygon:
-            shapely_points = [Point(p) for p in points]
-            within_shape = filter(shape.contains, shapely_points)
-            points_clip = np.array([list(p.coords)[0] for p in within_shape])
-        else:
-            print("Error: bounding shape type not recognized!")
-
-    return points_clip
 
 
 def parsePolygonWKT(wkt):
@@ -356,23 +295,29 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
+        holes = cascaded_union([Polygon(points[tri.simplices[t]])
+                                for t in big_triangles])
+
         listX = []
         listY = []
         listZ = []
 
-        holes = merge_triangles(tri, big_triangles)
         for h in holes:
-            hole_points = points[(np.array(list(h)))]
-
             if normals is not None:
-                hole_normals = normals[(np.array(list(h)))]
-                X, Y, Z = generate_synthetic_points(hole_points,
+                indices = []
+                for p in np.array(h.exterior.coords):
+                    pi = np.bincount(np.argwhere(points == p)[:, 0]).argmax()
+                    indices.append(pi)
+                hole_normals = normals[indices]
+                X, Y, Z = generate_synthetic_points(np.array(h.exterior.coords),
+                                                    h,
                                                     distance,
                                                     percentile,
                                                     hole_normals,
                                                     min_norm_z)
             else:
-                X, Y, Z = generate_synthetic_points(hole_points,
+                X, Y, Z = generate_synthetic_points(np.array(h.exterior.coords),
+                                                    h,
                                                     distance,
                                                     percentile)
 
