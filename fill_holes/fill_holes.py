@@ -227,9 +227,7 @@ def generate_synthetic_points(points, distance, percentile,
     Z = np.repeat(np.percentile(z_values, percentile, axis=0),
                   len(samples_in_hole))
 
-    synthetic_points = np.array((X, Y, Z)).T
-
-    return synthetic_points
+    return X, Y, Z
 
 
 def clip_points(points, shape):
@@ -346,9 +344,7 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
     synthetic_points : (Mx3) array
         The synthetic points
     """
-
-    synthetic_points = np.array([[], [], []])
-
+    # shift points to 0,0 to increase precision
     shift = np.min(points, axis=0)
     points -= shift
 
@@ -360,23 +356,31 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
+        listX = []
+        listY = []
+        listZ = []
+
         holes = merge_triangles(tri, big_triangles)
         for h in holes:
             hole_points = points[(np.array(list(h)))]
 
             if normals is not None:
                 hole_normals = normals[(np.array(list(h)))]
-                hole_synthetic_points = generate_synthetic_points(hole_points,
-                                                                  distance,
-                                                                  percentile,
-                                                                  hole_normals,
-                                                                  min_norm_z)
+                X, Y, Z = generate_synthetic_points(hole_points,
+                                                    distance,
+                                                    percentile,
+                                                    hole_normals,
+                                                    min_norm_z)
             else:
-                hole_synthetic_points = generate_synthetic_points(hole_points,
-                                                                  distance,
-                                                                  percentile)
+                X, Y, Z = generate_synthetic_points(hole_points,
+                                                    distance,
+                                                    percentile)
 
-        synthetic_points = np.vstack((synthetic_points, hole_synthetic_points))
+            listX.extend(X)
+            listY.extend(Y)
+            listZ.extend(Z)
+
+    synthetic_points = np.array((listX, listY, listZ)).T
 
     points += shift
     synthetic_points += shift
