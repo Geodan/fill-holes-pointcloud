@@ -343,55 +343,48 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
 
     Returns
     -------
-    points_filled : (Mx3) array
-        The new points added to the original points.
+    synthetic_points : (Mx3) array
+        The synthetic points
     """
 
-    points_filled = points
+    synthetic_points = np.array([[], [], []])
 
-    shift = np.min(points_filled, axis=0)
-    points_filled -= shift
+    shift = np.min(points, axis=0)
+    points -= shift
 
     # Do a triangulation of the points and check the size of the triangles to
     # find the holes
-    tri = Delaunay(points_filled[:, :2])
-    big_triangles = determine_big_triangles(points_filled, tri.simplices,
+    tri = Delaunay(points[:, :2])
+    big_triangles = determine_big_triangles(points, tri.simplices,
                                             max_circum_radius,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
-        X = []
-        Y = []
-        Z = []
         holes = merge_triangles(tri, big_triangles)
         for h in holes:
             hole_points = points[(np.array(list(h)))]
 
             if normals is not None:
                 hole_normals = normals[(np.array(list(h)))]
-                synthetic_points = generate_synthetic_points(hole_points,
-                                                             distance,
-                                                             percentile,
-                                                             hole_normals,
-                                                             min_norm_z)
+                hole_synthetic_points = generate_synthetic_points(hole_points,
+                                                                  distance,
+                                                                  percentile,
+                                                                  hole_normals,
+                                                                  min_norm_z)
             else:
-                synthetic_points = generate_synthetic_points(hole_points,
-                                                             distance,
-                                                             percentile)
+                hole_synthetic_points = generate_synthetic_points(hole_points,
+                                                                  distance,
+                                                                  percentile)
 
-            X.extend(synthetic_points[:, 0])
-            Y.extend(synthetic_points[:, 1])
-            Z.extend(synthetic_points[:, 2])
+        synthetic_points = np.vstack((synthetic_points, hole_synthetic_points))
 
-        new_points = np.array((X, Y, Z)).T
-        points_filled = np.vstack((points_filled, new_points))
-
-    points_filled += shift
+    points += shift
+    synthetic_points += shift
 
     if bounding_shape is not None:
         if type(bounding_shape) == str:
             bounding_coords = parsePolygonWKT(bounding_shape)
             bounding_shape = Path(bounding_coords)
-        points_filled = clip_points(points_filled, bounding_shape)
+        synthetic_points = clip_points(synthetic_points, bounding_shape)
 
-    return points_filled
+    return synthetic_points
