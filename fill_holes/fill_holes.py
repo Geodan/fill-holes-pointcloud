@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mar 21 2018
+fill_holes
+----------
+Generate synthetic points to fill holes in point clouds.
 
-@author: chrisl
+@author: chrisl / Geodan
 """
 
 import numpy as np
-from scipy.spatial import Delaunay
 from matplotlib.path import Path
 from numba import njit
+from scipy.spatial import Delaunay
 from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
@@ -16,36 +18,61 @@ from shapely.wkt import loads
 
 @njit()
 def triangle_geometries(points, tri_simplices):
-    area_list = []
-    circum_radius_list = []
+    """
+    Compute the circumradius and area of a set of triangles.
+
+    Parameters
+    ----------
+    points : (Mx3) array
+        The coordinates of the points.
+    tri_simplices : (Mx3) array
+        the indices of the simplices of the triangles.
+
+    Returns
+    -------
+    circumradii : list of float
+        The circumradii of the triangles
+    areas : list of float
+        The areas of the triangles
+    """
+    circumradii = []
+    areas = []
 
     for i in range(len(tri_simplices)):
         triangle = points[tri_simplices[i], :2]
 
-        pa = triangle[0]
-        pb = triangle[1]
-        pc = triangle[2]
+        point_a = triangle[0]
+        point_b = triangle[1]
+        point_c = triangle[2]
         # Lengths of sides of triangle
-        a = (((pa[0]-pb[0])*(pa[0]-pb[0]))+((pa[1]-pb[1])*(pa[1]-pb[1])))**0.5
-        b = (((pb[0]-pc[0])*(pb[0]-pc[0]))+((pb[1]-pc[1])*(pb[1]-pc[1])))**0.5
-        c = (((pc[0]-pa[0])*(pc[0]-pa[0]))+((pc[1]-pa[1])*(pc[1]-pa[1])))**0.5
+        x_diff_ab = point_a[0]-point_b[0]
+        y_diff_ab = point_a[1]-point_b[1]
+        x_diff_bc = point_b[0]-point_c[0]
+        y_diff_bc = point_b[1]-point_c[1]
+        x_diff_ca = point_c[0]-point_a[0]
+        y_diff_ca = point_c[1]-point_a[1]
+
+        length_a = ((x_diff_ab * x_diff_ab) + (y_diff_ab * y_diff_ab))**0.5
+        length_b = ((x_diff_bc * x_diff_bc) + (y_diff_bc * y_diff_bc))**0.5
+        length_c = ((x_diff_ca * x_diff_ca) + (y_diff_ca * y_diff_ca))**0.5
         # Semiperimeter of triangle
-        s = (a + b + c)/2.0
+        semiperimeter = (length_a + length_b + length_c) / 2.0
         # Area of triangle by Heron's formula
-        area = (s*(s-a)*(s-b)*(s-c))**0.5
+        area = (semiperimeter * (semiperimeter - length_a) *
+                (semiperimeter - length_b) * (semiperimeter - length_c))**0.5
         if area != 0:
-            circum_radius = a*b*c/(4.0*area)
+            circumradius = (length_a * length_b * length_c) / (4.0 * area)
         else:
-            circum_radius = 0
+            circumradius = 0
 
-        circum_radius_list.append(circum_radius)
-        area_list.append(area)
+        circumradii.append(circumradius)
+        areas.append(area)
 
-    return circum_radius_list, area_list
+    return circumradii, areas
 
 
 def determine_big_triangles(points, tri_simplices,
-                            max_circum_radius, max_ratio_radius_area):
+                            max_circumradius, max_ratio_radius_area):
     """
     Determines big triangles based on the circumradius and area.
 
@@ -55,29 +82,29 @@ def determine_big_triangles(points, tri_simplices,
         The coordinates of the points.
     tri_simplices : (Mx3) array
         the indices of the simplices of the triangles
-    max_circum_radius : float or int
+    max_circumradius : float or int
         A triangle with a bigger circumradius than this value will be
         considered big, if the triangle also meets the max_ratio_radius_area
         requirement.
     max_ratio_radius_area : float or int:
         A triangle with a bigger ratio between the circumradius and the area
         of the triangle than this value will be considered big, if
-        the triangle also meets the max_circum_radius requirement.
+        the triangle also meets the max_circumradius requirement.
 
     Returns
     -------
-    big_triangles : list
+    big_triangles : list of int
         A list of the indices of the big triangles
     """
     big_triangles = []
 
-    circum_radius_list, area_list = triangle_geometries(points, tri_simplices)
+    circumradii, areas = triangle_geometries(points, tri_simplices)
 
-    for i in range(len(circum_radius_list)):
-        area = area_list[i]
-        circum_radius = circum_radius_list[i]
-        if (circum_radius > max_circum_radius and
-                area/circum_radius > max_ratio_radius_area):
+    for i in range(len(circumradii)):
+        area = areas[i]
+        circumradius = circumradii[i]
+        if (circumradius > max_circumradius and
+                area/circumradius > max_ratio_radius_area):
             big_triangles.append(i)
 
     return big_triangles
@@ -121,23 +148,27 @@ def generate_synthetic_points(points, shape, distance, percentile,
     points : (Mx3) array
         The coordinates of the surrounding points.
     distance : float or int
-        The distance between the points that will be added.
+        The distance between the points that will be added. Default: 0.4
     percentile : int
         The percentile of the Z component of the points neighbouring a hole
-        to use for as the Z of the synthetic points.
-    normals_z : (Mx3) array
+        to use for as the Z of the synthetic points. Default: 50 (median)
+    normals_z : array-like of float
         The  Z component of the normals of the surrounding points. Will be
         used to determine which points should be considered when determining
-        the Z value of the synthetic points.
+        the Z value of the synthetic points. Default: None
     min_norm_z : float or int
         The minimal value the Z component of the normal vector of a point
         should be to be considered when determining the Z value of the
-        synthetic points.
+        synthetic points. Default: 0
 
     Returns
     -------
-    synthetic_points : (Mx3) array
-        The coordinates of the synthetic points.
+    X : (Mx1) array
+        The X coordinates of the synthetic points.
+    Y : (Mx1) array
+        The Y coordinates of the synthetic points.
+    Z : (Mx1) array
+        The Z coordinates of the synthetic points.
     """
     hole_path = Path(points[:, :2])
 
@@ -174,6 +205,20 @@ def generate_synthetic_points(points, shape, distance, percentile,
 
 def remove_outside_holes(holes, bounding_shape):
     """
+    Remove found holes which are outside of the bounding shape.
+
+    Parameters
+    ----------
+    holes : MultiPolygon or list of Polygons
+        The polygons of the holes.
+    bounding_shape : Polygon
+        A shape defined by a shapely Polygon.
+        No sythetic points will be added outside this shape.
+
+    Returns
+    -------
+    holes : list of Polygons
+        The holes within the bounding shape.
     """
     outside_shape = []
     for i, h in enumerate(holes):
@@ -185,40 +230,40 @@ def remove_outside_holes(holes, bounding_shape):
     return holes
 
 
-def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
+def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
                bounding_shape=None):
     """
-    Fill holes found in a point cloud with synthetic data.
+    Generate synthetic points to fill holes in point clouds.
 
     Parameters
     ----------
     points : (Mx3) array
         The coordinates of the points.
-    max_circum_radius : float or int
+    max_circumradius : float or int
         A triangle with a bigger circumradius than this value will be
         considered to be a hole, if the triangle also meets the
-        max_ratio_radius_area requirement.
+        max_ratio_radius_area requirement. Default: 0.4
     max_ratio_radius_area : float or int:
         A triangle with a bigger ratio between the circumradius and the area
         of the triangle than this value will be considered to be a hole, if
-        the triangle also meets the max_circum_radius requirement.
+        the triangle also meets the max_circumradius requirement. Default: 0.2
     distance : float or int
-        The distance between the points that will be added.
+        The distance between the points that will be added.  Default: 0.4
     percentile : int
         The percentile of the Z component of the points neighbouring a hole
-        to use for as the Z of the synthetic points.
-    normals_z : array-like
+        to use for as the Z of the synthetic points. Default: 50 (median)
+    normals_z : array-like of float
         The Z component of the normals of the points. Will be used to determine
         which points should be considered when determining the Z value of
-        the synthetic points.
+        the synthetic points. Default: None
     min_norm_z : float or int
         The minimal value the Z component of the normal vector of a point
         should be to be considered when determining the Z value of the
-        synthetic points.
-    bounding_shape : str or Path or Polygon
-        A shape defined by a polygon WKT string, a matplotlib Path,
-        or a shapely Polygon. All points will be clipped to this shape.
+        synthetic points. Default: 0
+    bounding_shape : str or Polygon
+        A shape defined by a polygon WKT string or a shapely Polygon.
+        No sythetic points will be added outside this shape.  Default: None
 
     Returns
     -------
@@ -233,7 +278,7 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
     # find the holes
     tri = Delaunay(points[:, :2])
     big_triangles = determine_big_triangles(points, tri.simplices,
-                                            max_circum_radius,
+                                            max_circumradius,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
