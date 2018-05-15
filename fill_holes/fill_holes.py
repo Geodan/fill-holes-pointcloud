@@ -5,49 +5,43 @@ Created on Mar 21 2018
 @author: chrisl
 """
 
-import math
 import numpy as np
 from scipy.spatial import Delaunay
 from matplotlib.path import Path
-from numba import jit
+from numba import njit
 from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
 
 
-@jit
-def triangle_geometry(triangle):
-    """
-    Compute the area and circumradius of a triangle.
+@njit()
+def triangle_geometries(points, tri_simplices):
+    area_list = []
+    circum_radius_list = []
 
-    Parameters
-    ----------
-    triangle : (3x3) array-like
-        The coordinates of the points which form the triangle.
+    for i in range(len(tri_simplices)):
+        triangle = points[tri_simplices[i], :2]
 
-    Returns
-    -------
-    area : float
-        The area of the triangle
-    circum_r : float
-        The circumradius of the triangle
-    """
-    pa = triangle[0]
-    pb = triangle[1]
-    pc = triangle[2]
-    # Lengths of sides of triangle
-    a = math.hypot((pa[0]-pb[0]), (pa[1]-pb[1]))
-    b = math.hypot((pb[0]-pc[0]), (pb[1]-pc[1]))
-    c = math.hypot((pc[0]-pa[0]), (pc[1]-pa[1]))
-    # Semiperimeter of triangle
-    s = (a + b + c)/2.0
-    # Area of triangle by Heron's formula
-    area = math.sqrt(s*(s-a)*(s-b)*(s-c))
-    if area != 0:
-        circum_r = a*b*c/(4.0*area)
-    else:
-        circum_r = 0
-    return area, circum_r
+        pa = triangle[0]
+        pb = triangle[1]
+        pc = triangle[2]
+        # Lengths of sides of triangle
+        a = (((pa[0]-pb[0])*(pa[0]-pb[0]))+((pa[1]-pb[1])*(pa[1]-pb[1])))**0.5
+        b = (((pb[0]-pc[0])*(pb[0]-pc[0]))+((pb[1]-pc[1])*(pb[1]-pc[1])))**0.5
+        c = (((pc[0]-pa[0])*(pc[0]-pa[0]))+((pc[1]-pa[1])*(pc[1]-pa[1])))**0.5
+        # Semiperimeter of triangle
+        s = (a + b + c)/2.0
+        # Area of triangle by Heron's formula
+        area = (s*(s-a)*(s-b)*(s-c))**0.5
+        if area != 0:
+            circum_radius = a*b*c/(4.0*area)
+        else:
+            circum_radius = 0
+
+        circum_radius_list.append(circum_radius)
+        area_list.append(area)
+
+    return circum_radius_list, area_list
 
 
 def determine_big_triangles(points, tri_simplices,
@@ -77,10 +71,13 @@ def determine_big_triangles(points, tri_simplices,
     """
     big_triangles = []
 
-    for i, t in enumerate(tri_simplices):
-        area, circum_r = triangle_geometry(points[t, :2])
-        if (circum_r > max_circum_radius and
-                area/circum_r > max_ratio_radius_area):
+    circum_radius_list, area_list = triangle_geometries(points, tri_simplices)
+
+    for i in range(len(circum_radius_list)):
+        area = area_list[i]
+        circum_radius = circum_radius_list[i]
+        if (circum_radius > max_circum_radius and
+                area/circum_radius > max_ratio_radius_area):
             big_triangles.append(i)
 
     return big_triangles
