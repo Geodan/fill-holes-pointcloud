@@ -161,6 +161,8 @@ def generate_synthetic_points(points, shape, distance, percentile,
 
     if normals_z is not None:
         z_values = points[normals_z > min_norm_z][:, 2]
+        if len(z_values) == 0:
+            z_values = np.array([points[np.argmax(normals_z), 2]])
     else:
         z_values = points[:, 2]
 
