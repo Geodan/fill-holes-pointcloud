@@ -112,7 +112,7 @@ def generate_samples(width, height, distance):
 
 
 def generate_synthetic_points(points, shape, distance, percentile,
-                              normals=None, min_norm_z=0):
+                              normals_z=None, min_norm_z=0):
     """
     Generate synthetic points within the surrounding points.
 
@@ -125,10 +125,10 @@ def generate_synthetic_points(points, shape, distance, percentile,
     percentile : int
         The percentile of the Z component of the points neighbouring a hole
         to use for as the Z of the synthetic points.
-    normals : (Mx3) array
-        The normals of the surrounding points. Will be used to determine
-        which points should be considered when determining the Z value of
-        the synthetic points.
+    normals_z : (Mx3) array
+        The  Z component of the normals of the surrounding points. Will be
+        used to determine which points should be considered when determining
+        the Z value of the synthetic points.
     min_norm_z : float or int
         The minimal value the Z component of the normal vector of a point
         should be to be considered when determining the Z value of the
@@ -159,8 +159,8 @@ def generate_synthetic_points(points, shape, distance, percentile,
     X = samples_in_hole[:, 0]
     Y = samples_in_hole[:, 1]
 
-    if normals is not None:
-        z_values = points[normals[:, 2] > min_norm_z][:, 2]
+    if normals_z is not None:
+        z_values = points[normals_z > min_norm_z][:, 2]
     else:
         z_values = points[:, 2]
 
@@ -184,7 +184,7 @@ def remove_outside_holes(holes, bounding_shape):
 
 
 def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
-               distance=0.4, percentile=50, normals=None, min_norm_z=0,
+               distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
                bounding_shape=None):
     """
     Fill holes found in a point cloud with synthetic data.
@@ -206,10 +206,10 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
     percentile : int
         The percentile of the Z component of the points neighbouring a hole
         to use for as the Z of the synthetic points.
-    normals : (Mx3) array
-        The normals of the points. Will be used to determine which points
-        should be considered when determining the Z value of the synthetic
-        points.
+    normals_z : array-like
+        The Z component of the normals of the points. Will be used to determine
+        which points should be considered when determining the Z value of
+        the synthetic points.
     min_norm_z : float or int
         The minimal value the Z component of the normal vector of a point
         should be to be considered when determining the Z value of the
@@ -249,17 +249,17 @@ def fill_holes(points, max_circum_radius=0.4, max_ratio_radius_area=0.2,
         listY = []
         listZ = []
         for h in holes:
-            if normals is not None:
+            if normals_z is not None:
                 indices = []
                 for p in np.array(h.exterior.coords):
                     pi = np.bincount(np.argwhere(points == p)[:, 0]).argmax()
                     indices.append(pi)
-                hole_normals = normals[indices]
+                hole_normals_z = normals_z[indices]
                 X, Y, Z = generate_synthetic_points(np.array(h.exterior.coords),
                                                     h,
                                                     distance,
                                                     percentile,
-                                                    hole_normals,
+                                                    hole_normals_z,
                                                     min_norm_z)
             else:
                 X, Y, Z = generate_synthetic_points(np.array(h.exterior.coords),
