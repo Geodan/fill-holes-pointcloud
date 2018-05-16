@@ -304,7 +304,9 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
     if len(big_triangles) != 0:
         if len(big_triangles) == 1:
             holes = [Polygon(points[tri.simplices[big_triangles[0]]])]
-        elif height_clustering:
+        elif height_clustering and len(big_triangles) <= 3:
+            holes = [Polygon(points[tri.simplices[t]]) for t in big_triangles]
+        elif height_clustering and len(big_triangles) > 3:
             holes = triangles_to_holes(points, tri, big_triangles)
         else:
             holes = cascaded_union([Polygon(points[tri.simplices[t]])
