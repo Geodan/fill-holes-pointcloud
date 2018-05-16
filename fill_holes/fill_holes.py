@@ -222,7 +222,7 @@ def remove_outside_holes(holes, bounding_shape):
     """
     outside_shape = []
     for i, h in enumerate(holes):
-        if not bounding_shape.contains(h.centroid):
+        if not h.within(bounding_shape):
             outside_shape.append(h)
 
     holes = [h for h in holes if h not in outside_shape]
