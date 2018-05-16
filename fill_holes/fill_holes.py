@@ -242,7 +242,7 @@ def triangles_to_holes(points, tri, big_triangles):
     holes = []
     for label in range(max(ms.labels_)):
         holes_cluster = cascaded_union(
-            [Polygon(t) for t in triangles[db.labels_ == label]])
+            [Polygon(t) for t in triangles[ms.labels_ == label]])
         holes_cluster = [holes_cluster] if type(
             holes_cluster) == Polygon else list(holes_cluster)
         holes.extend(holes_cluster)
@@ -252,7 +252,7 @@ def triangles_to_holes(points, tri, big_triangles):
 
 def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
-               bounding_shape=None):
+               bounding_shape=None, height_clustering=False):
     """
     Generate synthetic points to fill holes in point clouds.
 
@@ -302,10 +302,12 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
-        # holes = cascaded_union([Polygon(points[tri.simplices[t]])
-        #                         for t in big_triangles])
-        # holes = [holes] if type(holes) == Polygon else list(holes)
-        holes = triangles_to_holes(points, tri, big_triangles)
+        if height_clustering:
+            holes = triangles_to_holes(points, tri, big_triangles)
+        else:
+            holes = cascaded_union([Polygon(points[tri.simplices[t]])
+                                    for t in big_triangles])
+            holes = [holes] if type(holes) == Polygon else list(holes)
 
         if bounding_shape is not None:
             if type(bounding_shape) == str:
