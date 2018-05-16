@@ -317,9 +317,11 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
             listY.extend(Y)
             listZ.extend(Z)
 
-    synthetic_points = np.array((listX, listY, listZ)).T
+        synthetic_points = np.array((listX, listY, listZ)).T
 
-    points += shift
-    synthetic_points += shift
+        points += shift
+        synthetic_points += shift
 
-    return synthetic_points
+        return synthetic_points
+    else:
+        return np.empty((0, 3), dtype=np.float64)
