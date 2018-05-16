@@ -282,8 +282,9 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
-        holes = list(cascaded_union([Polygon(points[tri.simplices[t]])
-                                     for t in big_triangles]))
+        holes = cascaded_union([Polygon(points[tri.simplices[t]])
+                                for t in big_triangles])
+        holes = [holes] if type(holes) == Polygon else list(holes)
 
         if bounding_shape is not None:
             if type(bounding_shape) == str:
