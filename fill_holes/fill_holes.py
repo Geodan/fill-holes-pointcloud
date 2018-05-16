@@ -14,6 +14,7 @@ from scipy.spatial import Delaunay
 from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
+from sklearn.cluster import MeanShift
 
 
 @njit()
@@ -230,6 +231,25 @@ def remove_outside_holes(holes, bounding_shape):
     return holes
 
 
+def triangles_to_holes(points, tri, big_triangles):
+    """
+    """
+    triangles = points[tri.simplices[big_triangles]]
+    z_means = np.mean(triangles, axis=1)[:, 2]
+
+    ms = MeanShift().fit(z_means.reshape(-1, 1))
+
+    holes = []
+    for label in range(max(ms.labels_)):
+        holes_cluster = cascaded_union(
+            [Polygon(t) for t in triangles[db.labels_ == label]])
+        holes_cluster = [holes_cluster] if type(
+            holes_cluster) == Polygon else list(holes_cluster)
+        holes.extend(holes_cluster)
+
+    return holes
+
+
 def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
                bounding_shape=None):
@@ -282,9 +302,10 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
-        holes = cascaded_union([Polygon(points[tri.simplices[t]])
-                                for t in big_triangles])
-        holes = [holes] if type(holes) == Polygon else list(holes)
+        # holes = cascaded_union([Polygon(points[tri.simplices[t]])
+        #                         for t in big_triangles])
+        # holes = [holes] if type(holes) == Polygon else list(holes)
+        holes = triangles_to_holes(points, tri, big_triangles)
 
         if bounding_shape is not None:
             if type(bounding_shape) == str:
