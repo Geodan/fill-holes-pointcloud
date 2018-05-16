@@ -9,7 +9,7 @@ def read(filename):
 
 setup(
     name="fill_holes",
-    version="1.0.3",
+    version="1.0.4",
     author="Chris Lucas",
     author_email="chris.lucas@geodan.nl",
     description=(
@@ -29,7 +29,7 @@ setup(
         'matplotlib',
         'numba',
         'shapely',
-        'sklearn'
+        'scikit-learn'
     ],
     zip_safe=False
 )
