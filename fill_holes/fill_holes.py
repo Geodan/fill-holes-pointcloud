@@ -11,7 +11,7 @@ import numpy as np
 from matplotlib.path import Path
 from numba import njit
 from scipy.spatial import Delaunay
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
 from sklearn.cluster import MeanShift
@@ -204,9 +204,9 @@ def generate_synthetic_points(points, shape, distance, percentile,
     return X, Y, Z
 
 
-def remove_outside_holes(holes, bounding_shape):
+def clip_holes(holes, bounding_shape):
     """
-    Remove found holes which are outside of the bounding shape.
+    Clip holes outside of the bounding shape.
 
     Parameters
     ----------
@@ -221,12 +221,23 @@ def remove_outside_holes(holes, bounding_shape):
     holes : list of Polygons
         The holes within the bounding shape.
     """
-    outside_shape = []
-    for i, h in enumerate(holes):
-        if not h.within(bounding_shape):
-            outside_shape.append(h)
-
-    holes = [h for h in holes if h not in outside_shape]
+    if type(holes) == MultiPolygon or type(holes) == Polygon:
+        holes = holes.intersection(bounding_shape)
+        if type(holes) == Polygon:
+            holes = [holes]
+        elif type(holes) == MultiPolygon:
+            holes = list(holes)
+    elif type(holes) == list:
+        clipped_holes = []
+        for hole in holes:
+            hole_clip = hole.intersection(bounding_shape)
+            if type(hole_clip) == Polygon:
+                clipped_holes.append(hole_clip)
+            elif type(hole_clip) == MultiPolygon:
+                clipped_holes.extend(hole_clip)
+        holes = clipped_holes
+    else:
+        raise TypeError("Type of holes not recognized.")
 
     return holes
 
@@ -311,14 +322,15 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
         else:
             holes = cascaded_union([Polygon(points[tri.simplices[t]])
                                     for t in big_triangles])
-            holes = [holes] if type(holes) == Polygon else list(holes)
 
         if bounding_shape is not None:
             if type(bounding_shape) == str:
                 bounding_shape = loads(bounding_shape)
             bounding_shape = transform(lambda x, y: (x-shift[0], y-shift[1]),
                                        bounding_shape)
-            holes = remove_outside_holes(holes, bounding_shape)
+            holes = clip_holes(holes, bounding_shape)
+        else:
+            holes = [holes] if type(holes) == Polygon else list(holes)
 
         listX = []
         listY = []
