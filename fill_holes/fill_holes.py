@@ -14,7 +14,7 @@ from scipy.spatial import Delaunay
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
-from sklearn.cluster import MeanShift
+from sklearn.cluster import DBSCAN
 
 
 @njit()
@@ -242,28 +242,60 @@ def clip_holes(holes, bounding_shape):
     return holes
 
 
-def triangles_to_holes(points, tri, big_triangles):
+def triangles_to_holes(points, tri_simplices, big_triangles,
+                       height_clustering, eps=0.1):
     """
+    Converts the big triangles to polygons, which represent the holes.
+
+    Parameters
+    ----------
+    points : (Mx3) array
+        The coordinates of the points.
+    tri_simplices : (Mx3) array
+        The indices of the simplices of the triangles.
+    big_triangles : list
+        The indices of the triangles that are considered big.
+    height_clustering : bool
+        Option to cluster the triangles based on height using a DBSCAN to
+        prevent triangles at different heights from ending up in the same
+        polygon.
+    eps : float
+        Used in the DBSCAN for height clustering. The maximum distance
+        between two samples for them to be considered as in the same
+        neighborhood.
+
+    Returns
+    -------
+    holes : MultiPolygon or list of Polygons
+        The polygons of the holes.
     """
-    triangles = points[tri.simplices[big_triangles]]
-    z_means = np.mean(triangles, axis=1)[:, 2]
+    if len(big_triangles) == 1:
+        holes = [Polygon(points[tri_simplices[big_triangles[0]]])]
+    elif not height_clustering:
+        holes = cascaded_union([Polygon(points[tri_simplices[t]])
+                                for t in big_triangles])
+    elif height_clustering and len(big_triangles) <= 3:
+        holes = [Polygon(points[tri_simplices[t]]) for t in big_triangles]
+    else:
+        triangles = points[tri_simplices[big_triangles]]
+        z_means = np.mean(triangles, axis=1)[:, 2]
 
-    ms = MeanShift().fit(z_means.reshape(-1, 1))
+        db = DBSCAN(eps=eps, min_samples=1).fit(z_means.reshape(-1, 1))
 
-    holes = []
-    for label in range(max(ms.labels_)):
-        holes_cluster = cascaded_union(
-            [Polygon(t) for t in triangles[ms.labels_ == label]])
-        holes_cluster = [holes_cluster] if type(
-            holes_cluster) == Polygon else list(holes_cluster)
-        holes.extend(holes_cluster)
+        holes = []
+        for label in range(max(db.labels_)):
+            holes_cluster = cascaded_union(
+                [Polygon(t) for t in triangles[db.labels_ == label]])
+            holes_cluster = [holes_cluster] if type(
+                holes_cluster) == Polygon else list(holes_cluster)
+            holes.extend(holes_cluster)
 
     return holes
 
 
 def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
-               bounding_shape=None, height_clustering=False):
+               bounding_shape=None, height_clustering=False, eps=0.1):
     """
     Generate synthetic points to fill holes in point clouds.
 
@@ -295,6 +327,14 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
     bounding_shape : str or Polygon
         A shape defined by a polygon WKT string or a shapely Polygon.
         No sythetic points will be added outside this shape.  Default: None
+    height_clustering : bool
+        Option to cluster the triangles based on height using a DBSCAN to
+        prevent triangles at different heights from ending up in the same
+        polygon. Default: False
+    eps : float
+        Used in the DBSCAN for height clustering. The maximum distance
+        between two samples for them to be considered as in the same
+        neighborhood. Default: 0.1
 
     Returns
     -------
@@ -313,15 +353,8 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                                             max_ratio_radius_area)
 
     if len(big_triangles) != 0:
-        if len(big_triangles) == 1:
-            holes = [Polygon(points[tri.simplices[big_triangles[0]]])]
-        elif height_clustering and len(big_triangles) <= 3:
-            holes = [Polygon(points[tri.simplices[t]]) for t in big_triangles]
-        elif height_clustering and len(big_triangles) > 3:
-            holes = triangles_to_holes(points, tri, big_triangles)
-        else:
-            holes = cascaded_union([Polygon(points[tri.simplices[t]])
-                                    for t in big_triangles])
+        holes = triangles_to_holes(points, tri.simplices, big_triangles,
+                                   height_clustering, eps=eps)
 
         if bounding_shape is not None:
             if type(bounding_shape) == str:

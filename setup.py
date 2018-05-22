@@ -9,7 +9,7 @@ def read(filename):
 
 setup(
     name="fill_holes",
-    version="1.0.7",
+    version="1.1.0",
     author="Chris Lucas",
     author_email="chris.lucas@geodan.nl",
     description=(
