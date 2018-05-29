@@ -11,13 +11,13 @@ import numpy as np
 from matplotlib.path import Path
 from numba import njit
 from scipy.spatial import Delaunay
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
 from sklearn.cluster import DBSCAN
 
 
-@njit()
+@njit
 def triangle_geometries(points, tri_simplices):
     """
     Compute the circumradius and area of a set of triangles.
@@ -171,7 +171,7 @@ def generate_synthetic_points(points, shape, distance, percentile,
     Z : (Mx1) array
         The Z coordinates of the synthetic points.
     """
-    hole_path = Path(points[:, :2])
+    hole_path = Path(points[:, :2], closed=True)
 
     # Generate points based on the height and width of the hole
     width = np.ptp(points[:, 0])
@@ -204,46 +204,36 @@ def generate_synthetic_points(points, shape, distance, percentile,
     return X, Y, Z
 
 
-def clip_holes(holes, bounding_shape):
+def clip_points(points, bounding_shape):
     """
-    Clip holes outside of the bounding shape.
+    Clip points outside of the bounding shape.
 
     Parameters
     ----------
-    holes : MultiPolygon or list of Polygons
-        The polygons of the holes.
+    points : (Mx3) array
+        The coordinates of the points.
     bounding_shape : Polygon
-        A shape defined by a shapely Polygon.
-        No sythetic points will be added outside this shape.
+        A bounding shape defined by a shapely Polygon.
 
     Returns
     -------
-    holes : list of Polygons
-        The holes within the bounding shape.
+    points : (Mx3) array
+        The coordinates of the clipped points.
     """
-    if type(holes) == MultiPolygon or type(holes) == Polygon:
-        holes = holes.intersection(bounding_shape)
-        if type(holes) == Polygon:
-            holes = [holes]
-        elif type(holes) == MultiPolygon:
-            holes = list(holes)
-    elif type(holes) == list:
-        clipped_holes = []
-        for hole in holes:
-            hole_clip = hole.intersection(bounding_shape)
-            if type(hole_clip) == Polygon:
-                clipped_holes.append(hole_clip)
-            elif type(hole_clip) == MultiPolygon:
-                clipped_holes.extend(hole_clip)
-        holes = clipped_holes
+    if len(bounding_shape.interiors) > 0:
+        mask = [bounding_shape.contains(Point(p)) for p in points]
     else:
-        raise TypeError("Type of holes not recognized.")
+        bounding_path = Path(np.array(bounding_shape.exterior.coords)[:, :2],
+                             closed=True)
+        mask = bounding_path.contains_points(points[:, :2])
 
-    return holes
+    clipped_points = points[mask]
+
+    return clipped_points
 
 
 def triangles_to_holes(points, tri_simplices, big_triangles,
-                       height_clustering, eps=0.1):
+                       height_clustering=False, eps=0.1):
     """
     Converts the big triangles to polygons, which represent the holes.
 
@@ -269,13 +259,17 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
     holes : MultiPolygon or list of Polygons
         The polygons of the holes.
     """
+    points_indexed = np.array((points[:, 0],
+                               points[:, 1],
+                               list(range(len(points))))).T
     if len(big_triangles) == 1:
-        holes = [Polygon(points[tri_simplices[big_triangles[0]]])]
+        holes = [Polygon(points_indexed[tri_simplices[big_triangles[0]]])]
     elif not height_clustering:
-        holes = cascaded_union([Polygon(points[tri_simplices[t]])
+        holes = cascaded_union([Polygon(points_indexed[tri_simplices[t]])
                                 for t in big_triangles])
     elif height_clustering and len(big_triangles) <= 3:
-        holes = [Polygon(points[tri_simplices[t]]) for t in big_triangles]
+        holes = [Polygon(points_indexed[tri_simplices[t]]) for
+                 t in big_triangles]
     else:
         triangles = points[tri_simplices[big_triangles]]
         z_means = np.mean(triangles, axis=1)[:, 2]
@@ -285,7 +279,9 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
         holes = []
         for label in range(max(db.labels_)):
             holes_cluster = cascaded_union(
-                [Polygon(t) for t in triangles[db.labels_ == label]])
+                [Polygon(t) for t in
+                 points_indexed[tri_simplices[big_triangles]][db.labels_ ==
+                                                              label]])
             holes_cluster = [holes_cluster] if type(
                 holes_cluster) == Polygon else list(holes_cluster)
             holes.extend(holes_cluster)
@@ -356,33 +352,23 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
         holes = triangles_to_holes(points, tri.simplices, big_triangles,
                                    height_clustering, eps=eps)
 
-        if bounding_shape is not None:
-            if type(bounding_shape) == str:
-                bounding_shape = loads(bounding_shape)
-            bounding_shape = transform(lambda x, y: (x-shift[0], y-shift[1]),
-                                       bounding_shape)
-            holes = clip_holes(holes, bounding_shape)
-        else:
-            holes = [holes] if type(holes) == Polygon else list(holes)
+        holes = [holes] if type(holes) == Polygon else list(holes)
 
         listX = []
         listY = []
         listZ = []
         for h in holes:
+            indices = np.array(h.exterior.coords)[:, 2].astype(int)
             if normals_z is not None:
-                indices = []
-                for p in np.array(h.exterior.coords):
-                    pi = np.bincount(np.argwhere(points == p)[:, 0]).argmax()
-                    indices.append(pi)
                 hole_normals_z = normals_z[indices]
-                X, Y, Z = generate_synthetic_points(np.array(h.exterior.coords),
+                X, Y, Z = generate_synthetic_points(points[indices],
                                                     h,
                                                     distance,
                                                     percentile,
                                                     hole_normals_z,
                                                     min_norm_z)
             else:
-                X, Y, Z = generate_synthetic_points(np.array(h.exterior.coords),
+                X, Y, Z = generate_synthetic_points(points[indices],
                                                     h,
                                                     distance,
                                                     percentile)
@@ -391,6 +377,13 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
             listZ.extend(Z)
 
         synthetic_points = np.array((listX, listY, listZ)).T
+
+        if bounding_shape is not None:
+            if type(bounding_shape) == str:
+                bounding_shape = loads(bounding_shape)
+            bounding_shape = transform(lambda x, y: (x-shift[0], y-shift[1]),
+                                       bounding_shape)
+            synthetic_points = clip_points(synthetic_points, bounding_shape)
 
         points += shift
         synthetic_points += shift
