@@ -1,4 +1,3 @@
-import os
 from setuptools import setup
 
 
@@ -9,7 +8,7 @@ def read(filename):
 
 setup(
     name="fill_holes",
-    version="1.2.0",
+    version="1.2.1",
     author="Chris Lucas",
     author_email="chris.lucas@geodan.nl",
     description=(

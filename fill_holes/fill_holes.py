@@ -381,7 +381,7 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
         if bounding_shape is not None:
             if type(bounding_shape) == str:
                 bounding_shape = loads(bounding_shape)
-            bounding_shape = transform(lambda x, y: (x-shift[0], y-shift[1]),
+            bounding_shape = transform(lambda x, y, z=None: (x-shift[0], y-shift[1]),
                                        bounding_shape)
             synthetic_points = clip_points(synthetic_points, bounding_shape)
 
