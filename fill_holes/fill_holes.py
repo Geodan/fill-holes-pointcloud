@@ -11,6 +11,7 @@ import numpy as np
 from matplotlib.path import Path
 from numba import njit
 from scipy.spatial import Delaunay
+from scipy.spatial.qhull import QhullError
 from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
@@ -291,7 +292,8 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
 
 def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
-               bounding_shape=None, height_clustering=False, eps=0.1):
+               bounding_shape=None, height_clustering=False, eps=0.1,
+               suppress_qhull_errors=False):
     """
     Generate synthetic points to fill holes in point clouds.
 
@@ -331,6 +333,9 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
         Used in the DBSCAN for height clustering. The maximum distance
         between two samples for them to be considered as in the same
         neighborhood. Default: 0.1
+    suppress_qhull_errors : bool
+        If set to true an empty array will be returned when qhull raises an
+        error when creating the delaunay triangulation.
 
     Returns
     -------
@@ -343,7 +348,14 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
 
     # Do a triangulation of the points and check the size of the triangles to
     # find the holes
-    tri = Delaunay(points[:, :2])
+    try:
+        tri = Delaunay(points[:, :2])
+    except QhullError as e:
+        if suppress_qhull_errors:
+            return np.empty((0, 3), dtype=np.float64)
+        else:
+            raise(e)
+
     big_triangles = determine_big_triangles(points, tri.simplices,
                                             max_circumradius,
                                             max_ratio_radius_area)
