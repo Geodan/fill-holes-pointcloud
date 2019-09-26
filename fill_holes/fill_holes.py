@@ -234,7 +234,8 @@ def clip_points(points, bounding_shape):
 
 
 def triangles_to_holes(points, tri_simplices, big_triangles,
-                       height_clustering=False, eps=0.1):
+                       height_clustering=False, eps=0.1,
+                       min_samples=1):
     """
     Converts the big triangles to polygons, which represent the holes.
 
@@ -275,7 +276,7 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
         triangles = points[tri_simplices[big_triangles]]
         z_means = np.mean(triangles, axis=1)[:, 2]
 
-        db = DBSCAN(eps=eps, min_samples=1).fit(z_means.reshape(-1, 1))
+        db = DBSCAN(eps=eps, min_samples=min_samples).fit(z_means.reshape(-1, 1))
 
         holes = []
         for label in range(max(db.labels_)):
