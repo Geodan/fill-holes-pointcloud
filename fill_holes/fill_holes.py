@@ -234,8 +234,8 @@ def clip_points(points, bounding_shape):
 
 
 def triangles_to_holes(points, tri_simplices, big_triangles,
-                       height_clustering=False, eps=0.1,
-                       min_samples=1):
+                       height_clustering=False, eps=0.4,
+                       min_samples=4):
     """
     Converts the big triangles to polygons, which represent the holes.
 
@@ -291,10 +291,39 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
     return holes
 
 
+def find_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
+               height_clustering=False, eps=0.4, min_samples=4,
+               suppress_qhull_errors=False):
+    # Do a triangulation of the points and check the size of the triangles to
+    # find the holes
+    try:
+        tri = Delaunay(points[:, :2])
+    except QhullError as e:
+        if suppress_qhull_errors:
+            return []
+        else:
+            raise(e)
+
+    big_triangles = determine_big_triangles(points, tri.simplices,
+                                            max_circumradius,
+                                            max_ratio_radius_area)
+
+    if len(big_triangles) != 0:
+        holes = triangles_to_holes(points, tri.simplices, big_triangles,
+                                   height_clustering, eps=eps,
+                                   min_samples=min_samples)
+
+        holes = [holes] if type(holes) == Polygon else list(holes)
+
+        return holes
+    else:
+        return []
+
+
 def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
-               bounding_shape=None, height_clustering=False, eps=0.1,
-               suppress_qhull_errors=False):
+               bounding_shape=None, height_clustering=False, eps=0.4,
+               min_samples=4, suppress_qhull_errors=False):
     """
     Generate synthetic points to fill holes in point clouds.
 
@@ -347,26 +376,17 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
     shift = np.min(points, axis=0)
     points -= shift
 
-    # Do a triangulation of the points and check the size of the triangles to
-    # find the holes
-    try:
-        tri = Delaunay(points[:, :2])
-    except QhullError as e:
-        if suppress_qhull_errors:
-            return np.empty((0, 3), dtype=np.float64)
-        else:
-            raise(e)
+    holes = find_holes(
+        points,
+        max_circumradius=max_circumradius,
+        max_ratio_radius_area=max_ratio_radius_area,
+        height_clustering=height_clustering,
+        eps=eps,
+        min_samples=min_samples,
+        suppress_qhull_errors=suppress_qhull_errors
+    )
 
-    big_triangles = determine_big_triangles(points, tri.simplices,
-                                            max_circumradius,
-                                            max_ratio_radius_area)
-
-    if len(big_triangles) != 0:
-        holes = triangles_to_holes(points, tri.simplices, big_triangles,
-                                   height_clustering, eps=eps)
-
-        holes = [holes] if type(holes) == Polygon else list(holes)
-
+    if len(holes) > 0:
         listX = []
         listY = []
         listZ = []
