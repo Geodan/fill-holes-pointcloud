@@ -279,7 +279,7 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
         db = DBSCAN(eps=eps, min_samples=min_samples).fit(z_means.reshape(-1, 1))
 
         holes = []
-        for label in range(max(db.labels_)):
+        for label in range(max(db.labels_) + 1):
             holes_cluster = cascaded_union(
                 [Polygon(t) for t in
                  points_indexed[tri_simplices[big_triangles]][db.labels_ ==
@@ -404,4 +404,5 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
 
         return synthetic_points
     else:
+        points += shift
         return np.empty((0, 3), dtype=np.float64)
