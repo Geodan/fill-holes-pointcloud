@@ -12,10 +12,11 @@ from matplotlib.path import Path
 from numba import njit
 from scipy.spatial import Delaunay
 from scipy.spatial.qhull import QhullError
+from scipy.stats import gaussian_kde
+from scipy.signal import argrelextrema
 from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
-from sklearn.cluster import DBSCAN
 
 
 @njit
@@ -233,9 +234,46 @@ def clip_points(points, bounding_shape):
     return clipped_points
 
 
+def kde_clustering(values, bandwidth=0.05):
+    """
+    Cluster values using Kernel Density Estimation
+    by splitting values at minima.
+
+    Parameters
+    ----------
+    values : list of float
+        The values to cluster.
+    bandwidth : float
+        The bandwidth of the kernel.
+
+    Returns
+    -------
+    labels : list of int
+        The labels of the clusters the values belong to.
+    """
+    X = np.arange(min(values), max(values), bandwidth)
+    kernel = gaussian_kde(values)
+    estimates = kernel.evaluate(X)
+    minima = argrelextrema(estimates, np.less)[0]
+    splits = X[minima]
+
+    labels = np.zeros(len(values), dtype=np.int)
+
+    for i in range(len(splits)+1):
+        if i == 0:
+            labels[values < splits[i]] = i
+        elif i == len(splits):
+            labels[values > splits[i-1]] = i
+        else:
+            labels[
+                np.logical_and(values > splits[i], values < splits[i+1])
+            ] = i
+
+    return labels
+
+
 def triangles_to_holes(points, tri_simplices, big_triangles,
-                       height_clustering=False, eps=0.4,
-                       min_samples=4):
+                       height_clustering=False, kde_bandwidth=0.05):
     """
     Converts the big triangles to polygons, which represent the holes.
 
@@ -248,13 +286,12 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
     big_triangles : list
         The indices of the triangles that are considered big.
     height_clustering : bool
-        Option to cluster the triangles based on height using a DBSCAN to
+        Option to cluster the triangles based on height using a KDE to
         prevent triangles at different heights from ending up in the same
         polygon.
-    eps : float
-        Used in the DBSCAN for height clustering. The maximum distance
-        between two samples for them to be considered as in the same
-        neighborhood.
+    kde_bandwidth : float
+        The bandwidth of the kernel during kernal density estimation for
+        clustering.
 
     Returns
     -------
@@ -276,14 +313,14 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
         triangles = points[tri_simplices[big_triangles]]
         z_means = np.mean(triangles, axis=1)[:, 2]
 
-        db = DBSCAN(eps=eps, min_samples=min_samples).fit(z_means.reshape(-1, 1))
+        labels = kde_clustering(z_means, kde_bandwidth)
 
         holes = []
-        for label in range(max(db.labels_) + 1):
-            holes_cluster = cascaded_union(
-                [Polygon(t) for t in
-                 points_indexed[tri_simplices[big_triangles]][db.labels_ ==
-                                                              label]])
+        big_triangles_points = points_indexed[tri_simplices[big_triangles]]
+        for label in range(max(labels) + 1):
+            big_triangles_cluster = big_triangles_points[labels == label]
+            triangle_polygons = [Polygon(t) for t in big_triangles_cluster]
+            holes_cluster = cascaded_union(triangle_polygons)
             holes_cluster = [holes_cluster] if type(
                 holes_cluster) == Polygon else list(holes_cluster)
             holes.extend(holes_cluster)
@@ -292,8 +329,39 @@ def triangles_to_holes(points, tri_simplices, big_triangles,
 
 
 def find_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
-               height_clustering=False, eps=0.4, min_samples=4,
+               height_clustering=False, kde_bandwidth=0.05,
                suppress_qhull_errors=False):
+    """
+    Find holes in a point cloud.
+
+    Parameters
+    ----------
+    points : (Mx3) array
+        The coordinates of the points.
+    max_circumradius : float or int
+        A triangle with a bigger circumradius than this value will be
+        considered to be a hole, if the triangle also meets the
+        max_ratio_radius_area requirement. Default: 0.4
+    max_ratio_radius_area : float or int:
+        A triangle with a bigger ratio between the circumradius and the area
+        of the triangle than this value will be considered to be a hole, if
+        the triangle also meets the max_circumradius requirement. Default: 0.2
+    height_clustering : bool
+        Option to cluster the triangles based on height using a KDE to
+        prevent triangles at different heights from ending up in the same
+        polygon. Default: False
+    kde_bandwidth : float
+        The bandwidth of the kernel during kernal density estimation for
+        clustering. Default: 0.05
+    suppress_qhull_errors : bool
+        If set to true an empty array will be returned when qhull raises an
+        error when creating the delaunay triangulation.
+
+    Returns
+    -------
+    holes : list of Polygon
+        The holes in the point cloud.
+    """
     # Do a triangulation of the points and check the size of the triangles to
     # find the holes
     try:
@@ -310,8 +378,7 @@ def find_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
 
     if len(big_triangles) != 0:
         holes = triangles_to_holes(points, tri.simplices, big_triangles,
-                                   height_clustering, eps=eps,
-                                   min_samples=min_samples)
+                                   height_clustering, kde_bandwidth)
 
         holes = [holes] if type(holes) == Polygon else list(holes)
 
@@ -322,8 +389,8 @@ def find_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
 
 def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
                distance=0.4, percentile=50, normals_z=None, min_norm_z=0,
-               bounding_shape=None, height_clustering=False, eps=0.4,
-               min_samples=4, suppress_qhull_errors=False):
+               bounding_shape=None, height_clustering=False,
+               kde_bandwidth=0.05, suppress_qhull_errors=False):
     """
     Generate synthetic points to fill holes in point clouds.
 
@@ -356,13 +423,12 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
         A shape defined by a polygon WKT string or a shapely Polygon.
         No sythetic points will be added outside this shape.  Default: None
     height_clustering : bool
-        Option to cluster the triangles based on height using a DBSCAN to
+        Option to cluster the triangles based on height using a KDE to
         prevent triangles at different heights from ending up in the same
         polygon. Default: False
-    eps : float
-        Used in the DBSCAN for height clustering. The maximum distance
-        between two samples for them to be considered as in the same
-        neighborhood. Default: 0.1
+    kde_bandwidth : float
+        The bandwidth of the kernel during kernal density estimation for
+        clustering. Default: 0.05
     suppress_qhull_errors : bool
         If set to true an empty array will be returned when qhull raises an
         error when creating the delaunay triangulation.
@@ -381,8 +447,7 @@ def fill_holes(points, max_circumradius=0.4, max_ratio_radius_area=0.2,
         max_circumradius=max_circumradius,
         max_ratio_radius_area=max_ratio_radius_area,
         height_clustering=height_clustering,
-        eps=eps,
-        min_samples=min_samples,
+        kde_bandwidth=kde_bandwidth,
         suppress_qhull_errors=suppress_qhull_errors
     )
 

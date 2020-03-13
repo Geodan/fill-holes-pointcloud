@@ -27,8 +27,7 @@ setup(
         'scipy',
         'matplotlib',
         'numba',
-        'shapely',
-        'scikit-learn'
+        'shapely'
     ],
     zip_safe=False
 )

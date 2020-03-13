@@ -30,6 +30,16 @@ min_norm_z : float or int
 bounding_shape : str or Polygon
     A shape defined by a polygon WKT string or a shapely Polygon.
     No sythetic points will be added outside this shape.  Default: None
+height_clustering : bool
+    Option to cluster the triangles based on height using a KDE to
+    prevent triangles at different heights from ending up in the same
+    polygon. Default: False
+kde_bandwidth : float
+    The bandwidth of the kernel during kernal density estimation for
+    clustering. Default: 0.05
+suppress_qhull_errors : bool
+    If set to true an empty array will be returned when qhull raises an
+    error when creating the delaunay triangulation.
 
 Returns
 -------
