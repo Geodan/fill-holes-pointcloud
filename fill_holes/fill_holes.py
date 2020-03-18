@@ -9,7 +9,6 @@ Generate synthetic points to fill holes in point clouds.
 
 import numpy as np
 from matplotlib.path import Path
-from numba import njit
 from scipy.spatial import Delaunay
 from scipy.spatial.qhull import QhullError
 from scipy.stats import gaussian_kde
@@ -19,7 +18,6 @@ from shapely.ops import cascaded_union, transform
 from shapely.wkt import loads
 
 
-@njit
 def triangle_geometries(points, tri_simplices):
     """
     Compute the circumradius and area of a set of triangles.
@@ -38,38 +36,18 @@ def triangle_geometries(points, tri_simplices):
     areas : list of float
         The areas of the triangles
     """
-    circumradii = []
-    areas = []
-
-    for i in range(len(tri_simplices)):
-        triangle = points[tri_simplices[i], :2]
-
-        point_a = triangle[0]
-        point_b = triangle[1]
-        point_c = triangle[2]
-        # Lengths of sides of triangle
-        x_diff_ab = point_a[0]-point_b[0]
-        y_diff_ab = point_a[1]-point_b[1]
-        x_diff_bc = point_b[0]-point_c[0]
-        y_diff_bc = point_b[1]-point_c[1]
-        x_diff_ca = point_c[0]-point_a[0]
-        y_diff_ca = point_c[1]-point_a[1]
-
-        length_a = ((x_diff_ab * x_diff_ab) + (y_diff_ab * y_diff_ab))**0.5
-        length_b = ((x_diff_bc * x_diff_bc) + (y_diff_bc * y_diff_bc))**0.5
-        length_c = ((x_diff_ca * x_diff_ca) + (y_diff_ca * y_diff_ca))**0.5
-        # Semiperimeter of triangle
-        semiperimeter = (length_a + length_b + length_c) / 2.0
-        # Area of triangle by Heron's formula
-        area = (semiperimeter * (semiperimeter - length_a) *
-                (semiperimeter - length_b) * (semiperimeter - length_c))**0.5
-        if area != 0:
-            circumradius = (length_a * length_b * length_c) / (4.0 * area)
-        else:
-            circumradius = 0
-
-        circumradii.append(circumradius)
-        areas.append(area)
+    triangles = points[tri_simplices]
+    triangles = np.moveaxis(triangles, (1, 0), (0, 2)).reshape((6, -1))
+    p0x, p0y, p1x, p1y, p2x, p2y = triangles
+    length_a = np.hypot((p0x-p1x), (p0y-p1y))
+    length_b = np.hypot((p1x-p2x), (p1y-p2y))
+    length_c = np.hypot((p0x-p2x), (p0y-p2y))
+    semiperimeter = (length_a + length_b + length_c) / 2.0
+    areas = (semiperimeter * (semiperimeter - length_a) *
+             (semiperimeter - length_b) * (semiperimeter - length_c))**0.5
+    valid_triangles = areas != 0
+    circumradii = np.divide((length_a * length_b * length_c), (4.0 * areas),
+                            where=valid_triangles, out=np.zeros_like(areas))
 
     return circumradii, areas
 
@@ -99,16 +77,12 @@ def determine_big_triangles(points, tri_simplices,
     big_triangles : list of int
         A list of the indices of the big triangles
     """
-    big_triangles = []
-
     circumradii, areas = triangle_geometries(points, tri_simplices)
 
-    for i in range(len(circumradii)):
-        area = areas[i]
-        circumradius = circumradii[i]
-        if (circumradius > max_circumradius and
-                area/circumradius > max_ratio_radius_area):
-            big_triangles.append(i)
+    big_triangles = np.where(np.logical_and(
+        circumradii > max_circumradius,
+        areas/circumradii > max_ratio_radius_area
+    ))
 
     return big_triangles
 
@@ -266,7 +240,7 @@ def kde_clustering(values, bandwidth=0.05):
             labels[values > splits[i-1]] = i
         else:
             labels[
-                np.logical_and(values > splits[i], values < splits[i+1])
+                np.logical_and(values > splits[i-1], values < splits[i])
             ] = i
 
     return labels

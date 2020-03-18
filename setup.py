@@ -26,7 +26,6 @@ setup(
         'numpy',
         'scipy',
         'matplotlib',
-        'numba',
         'shapely'
     ],
     zip_safe=False
